@@ -371,6 +371,7 @@
 
       <p class="hint">
         操作順序：先按「1. 整理稿子」，確認段落出現後，再按「2. 開始朗讀」。
+        朗讀完成後，再按「2. 開始朗讀」會自動從頭播放。
       </p>
     </section>
 
@@ -399,338 +400,508 @@
     </div>
   </nav>
 
-  <script>
-    const scriptInput = document.getElementById("scriptInput");
-    const content = document.getElementById("content");
-    const statusBox = document.getElementById("status");
-    const currentSentenceDisplay = document.getElementById("currentSentenceDisplay");
-    const rateInput = document.getElementById("rateInput");
-    const rateValue = document.getElementById("rateValue");
-    const voiceSelect = document.getElementById("voiceSelect");
+<script>
+  const scriptInput = document.getElementById("scriptInput");
+  const content = document.getElementById("content");
+  const statusBox = document.getElementById("status");
+  const currentSentenceDisplay = document.getElementById("currentSentenceDisplay");
+  const rateInput = document.getElementById("rateInput");
+  const rateValue = document.getElementById("rateValue");
+  const voiceSelect = document.getElementById("voiceSelect");
 
-    let paragraphs = [];
-    let currentParagraphIndex = 0;
-    let currentSentenceIndex = 0;
-    let isReading = false;
-    let voices = [];
+  const STORAGE_SCRIPT_KEY = "englishReader.script";
+  const STORAGE_RATE_KEY = "englishReader.rate";
+  const STORAGE_VOICE_KEY = "englishReader.voice";
 
-    rateInput.addEventListener("input", () => {
-      rateValue.textContent = rateInput.value;
+  let paragraphs = [];
+  let currentParagraphIndex = 0;
+  let currentSentenceIndex = 0;
+  let isReading = false;
+  let hasFinished = false;
+  let voices = [];
+  let currentUtteranceId = 0;
+  let pendingStartTimer = null;
+
+  function saveToLocalStorage() {
+    try {
+      localStorage.setItem(STORAGE_SCRIPT_KEY, scriptInput.value);
+      localStorage.setItem(STORAGE_RATE_KEY, rateInput.value);
+      localStorage.setItem(STORAGE_VOICE_KEY, voiceSelect.value || "");
+    } catch (error) {
+      console.warn("localStorage 儲存失敗：", error);
+    }
+  }
+
+  function restoreFromLocalStorage() {
+    try {
+      const savedScript = localStorage.getItem(STORAGE_SCRIPT_KEY);
+      const savedRate = localStorage.getItem(STORAGE_RATE_KEY);
+
+      if (savedScript) {
+        scriptInput.value = savedScript;
+        statusBox.textContent = "已載入上次內容，請按「1. 整理稿子」";
+      }
+
+      if (savedRate) {
+        rateInput.value = savedRate;
+        rateValue.textContent = savedRate;
+      }
+    } catch (error) {
+      console.warn("localStorage 讀取失敗：", error);
+    }
+  }
+
+  function clearSavedData() {
+    try {
+      localStorage.removeItem(STORAGE_SCRIPT_KEY);
+      localStorage.removeItem(STORAGE_RATE_KEY);
+      localStorage.removeItem(STORAGE_VOICE_KEY);
+    } catch (error) {
+      console.warn("localStorage 清除失敗：", error);
+    }
+  }
+
+  scriptInput.addEventListener("input", saveToLocalStorage);
+
+  rateInput.addEventListener("input", () => {
+    rateValue.textContent = rateInput.value;
+    saveToLocalStorage();
+  });
+
+  voiceSelect.addEventListener("change", saveToLocalStorage);
+
+  function clearPendingStartTimer() {
+    if (pendingStartTimer) {
+      clearTimeout(pendingStartTimer);
+      pendingStartTimer = null;
+    }
+  }
+
+  function loadVoices() {
+    voices = window.speechSynthesis.getVoices();
+    voiceSelect.innerHTML = "";
+
+    const englishVoices = voices.filter(v => v.lang && v.lang.startsWith("en"));
+
+    englishVoices.forEach(voice => {
+      const option = document.createElement("option");
+      option.value = voice.name;
+      option.textContent = `${voice.name} (${voice.lang})`;
+      voiceSelect.appendChild(option);
     });
 
-    function loadVoices() {
-      voices = window.speechSynthesis.getVoices();
-      voiceSelect.innerHTML = "";
+    if (englishVoices.length === 0) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "使用瀏覽器預設聲音";
+      voiceSelect.appendChild(option);
+    }
 
-      const englishVoices = voices.filter(v => v.lang && v.lang.startsWith("en"));
+    try {
+      const savedVoice = localStorage.getItem(STORAGE_VOICE_KEY);
+      if (savedVoice) {
+        voiceSelect.value = savedVoice;
+      }
+    } catch (error) {
+      console.warn("讀取聲音設定失敗：", error);
+    }
+  }
 
-      englishVoices.forEach(voice => {
-        const option = document.createElement("option");
-        option.value = voice.name;
-        option.textContent = `${voice.name} (${voice.lang})`;
-        voiceSelect.appendChild(option);
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+  loadVoices();
+  restoreFromLocalStorage();
+
+  function splitIntoSentences(text) {
+    return text
+      .match(/[^.!?]+[.!?]+|[^.!?]+$/g)
+      ?.map(s => s.trim())
+      .filter(s => s.length > 0) || [];
+  }
+
+  function cancelSpeechSafely() {
+    currentUtteranceId++;
+    window.speechSynthesis.cancel();
+  }
+
+  function prepareScript() {
+    stopReading();
+
+    const text = scriptInput.value.trim();
+
+    if (!text) {
+      alert("請先貼上英文稿。");
+      return;
+    }
+
+    saveToLocalStorage();
+
+    paragraphs = text
+      .replace(/\r\n/g, "\n")
+      .split(/\n+/)
+      .map(p => p.trim())
+      .filter(p => p.length > 0)
+      .map(p => ({
+        originalText: p,
+        sentences: splitIntoSentences(p)
+      }))
+      .filter(p => p.sentences.length > 0);
+
+    currentParagraphIndex = 0;
+    currentSentenceIndex = 0;
+    hasFinished = false;
+
+    renderContent();
+    updateStatus();
+    highlightCurrent();
+  }
+
+  function ensureScriptPrepared() {
+    if (paragraphs.length === 0 && scriptInput.value.trim()) {
+      prepareScript();
+    }
+
+    return paragraphs.length > 0;
+  }
+
+  function renderContent() {
+    content.innerHTML = "";
+
+    paragraphs.forEach((paragraph, pIndex) => {
+      const paragraphDiv = document.createElement("div");
+      paragraphDiv.className = "paragraph";
+      paragraphDiv.id = `paragraph-${pIndex}`;
+
+      const title = document.createElement("div");
+      title.className = "paragraph-title";
+      title.textContent = `Paragraph ${pIndex + 1}`;
+      paragraphDiv.appendChild(title);
+
+      const textDiv = document.createElement("div");
+
+      paragraph.sentences.forEach((sentence, sIndex) => {
+        const span = document.createElement("span");
+        span.className = "sentence";
+        span.id = `sentence-${pIndex}-${sIndex}`;
+        span.textContent = sentence + " ";
+
+        span.onclick = () => {
+          stopReading();
+          currentParagraphIndex = pIndex;
+          currentSentenceIndex = sIndex;
+          hasFinished = false;
+          highlightCurrent();
+          updateStatus();
+        };
+
+        textDiv.appendChild(span);
       });
 
-      if (englishVoices.length === 0) {
-        const option = document.createElement("option");
-        option.value = "";
-        option.textContent = "使用瀏覽器預設聲音";
-        voiceSelect.appendChild(option);
-      }
+      paragraphDiv.appendChild(textDiv);
+      content.appendChild(paragraphDiv);
+    });
+  }
+
+  function highlightCurrent() {
+    document.querySelectorAll(".paragraph").forEach(el => {
+      el.classList.remove("active");
+    });
+
+    document.querySelectorAll(".sentence").forEach(el => {
+      el.classList.remove("active", "done");
+    });
+
+    paragraphs.forEach((paragraph, pIndex) => {
+      paragraph.sentences.forEach((_, sIndex) => {
+        const sentenceEl = document.getElementById(`sentence-${pIndex}-${sIndex}`);
+
+        if (!sentenceEl) return;
+
+        if (
+          pIndex < currentParagraphIndex ||
+          (pIndex === currentParagraphIndex && sIndex < currentSentenceIndex)
+        ) {
+          sentenceEl.classList.add("done");
+        }
+      });
+    });
+
+    const currentParagraphEl = document.getElementById(`paragraph-${currentParagraphIndex}`);
+    const currentSentenceEl = document.getElementById(
+      `sentence-${currentParagraphIndex}-${currentSentenceIndex}`
+    );
+
+    if (currentParagraphEl) {
+      currentParagraphEl.classList.add("active");
     }
 
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-    loadVoices();
-
-    function splitIntoSentences(text) {
-      return text
-        .match(/[^.!?]+[.!?]+|[^.!?]+$/g)
-        ?.map(s => s.trim())
-        .filter(s => s.length > 0) || [];
+    if (currentSentenceEl) {
+      currentSentenceEl.classList.add("active");
+      currentSentenceEl.scrollIntoView({
+        behavior: "smooth",
+        block: "center"
+      });
     }
 
-    function prepareScript() {
-      stopReading();
+    updateCurrentSentenceDisplay();
+  }
 
-      const text = scriptInput.value.trim();
+  function updateCurrentSentenceDisplay() {
+    if (
+      paragraphs.length === 0 ||
+      !paragraphs[currentParagraphIndex] ||
+      !paragraphs[currentParagraphIndex].sentences[currentSentenceIndex]
+    ) {
+      currentSentenceDisplay.textContent = "目前沒有朗讀中的句子。";
+      return;
+    }
 
-      if (!text) {
-        alert("請先貼上英文稿。");
-        return;
-      }
+    currentSentenceDisplay.textContent =
+      paragraphs[currentParagraphIndex].sentences[currentSentenceIndex];
+  }
 
-      paragraphs = text
-        .replace(/\r\n/g, "\n")
-        .split(/\n+/)
-        .map(p => p.trim())
-        .filter(p => p.length > 0)
-        .map(p => ({
-          originalText: p,
-          sentences: splitIntoSentences(p)
-        }))
-        .filter(p => p.sentences.length > 0);
+  function updateStatus() {
+    if (paragraphs.length === 0) {
+      statusBox.textContent = scriptInput.value.trim()
+        ? "已載入內容，請按「1. 整理稿子」"
+        : "尚未整理稿子";
 
-      currentParagraphIndex = 0;
+      currentSentenceDisplay.textContent = "目前沒有朗讀中的句子。";
+      return;
+    }
+
+    if (hasFinished || currentParagraphIndex >= paragraphs.length) {
+      statusBox.textContent = "整篇朗讀完成，可再按「2. 開始朗讀」從頭播放";
+      currentSentenceDisplay.textContent = "整篇朗讀完成。再按「2. 開始朗讀」會從頭開始。";
+      return;
+    }
+
+    const currentParagraph = paragraphs[currentParagraphIndex];
+
+    statusBox.textContent =
+      `目前第 ${currentParagraphIndex + 1} 段 / 共 ${paragraphs.length} 段，` +
+      `第 ${currentSentenceIndex + 1} 句 / 共 ${currentParagraph.sentences.length} 句`;
+  }
+
+  function getSelectedVoice() {
+    const selectedName = voiceSelect.value;
+    return voices.find(v => v.name === selectedName) || null;
+  }
+
+  function finishReading() {
+    isReading = false;
+    hasFinished = true;
+    statusBox.textContent = "整篇朗讀完成，可再按「2. 開始朗讀」從頭播放";
+    currentSentenceDisplay.textContent = "整篇朗讀完成。再按「2. 開始朗讀」會從頭開始。";
+  }
+
+  function speakCurrentSentence() {
+    if (!isReading) return;
+
+    if (currentParagraphIndex >= paragraphs.length) {
+      finishReading();
+      return;
+    }
+
+    const currentParagraph = paragraphs[currentParagraphIndex];
+
+    if (currentSentenceIndex >= currentParagraph.sentences.length) {
+      currentParagraphIndex++;
       currentSentenceIndex = 0;
+      speakCurrentSentence();
+      return;
+    }
 
-      renderContent();
-      updateStatus();
+    const sentence = currentParagraph.sentences[currentSentenceIndex];
+
+    cancelSpeechSafely();
+
+    const utteranceId = ++currentUtteranceId;
+
+    const utterance = new SpeechSynthesisUtterance(sentence);
+    utterance.lang = "en-US";
+    utterance.rate = Number(rateInput.value);
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    const selectedVoice = getSelectedVoice();
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
+    }
+
+    utterance.onstart = () => {
+      if (utteranceId !== currentUtteranceId) return;
+
       highlightCurrent();
-    }
+      updateStatus();
+    };
 
-    function renderContent() {
-      content.innerHTML = "";
+    utterance.onend = () => {
+      if (utteranceId !== currentUtteranceId) return;
 
-      paragraphs.forEach((paragraph, pIndex) => {
-        const paragraphDiv = document.createElement("div");
-        paragraphDiv.className = "paragraph";
-        paragraphDiv.id = `paragraph-${pIndex}`;
-
-        const title = document.createElement("div");
-        title.className = "paragraph-title";
-        title.textContent = `Paragraph ${pIndex + 1}`;
-        paragraphDiv.appendChild(title);
-
-        const textDiv = document.createElement("div");
-
-        paragraph.sentences.forEach((sentence, sIndex) => {
-          const span = document.createElement("span");
-          span.className = "sentence";
-          span.id = `sentence-${pIndex}-${sIndex}`;
-          span.textContent = sentence + " ";
-
-          span.onclick = () => {
-            stopReading();
-            currentParagraphIndex = pIndex;
-            currentSentenceIndex = sIndex;
-            highlightCurrent();
-            updateStatus();
-          };
-
-          textDiv.appendChild(span);
-        });
-
-        paragraphDiv.appendChild(textDiv);
-        content.appendChild(paragraphDiv);
-      });
-    }
-
-    function highlightCurrent() {
-      document.querySelectorAll(".paragraph").forEach(el => {
-        el.classList.remove("active");
-      });
-
-      document.querySelectorAll(".sentence").forEach(el => {
-        el.classList.remove("active", "done");
-      });
-
-      paragraphs.forEach((paragraph, pIndex) => {
-        paragraph.sentences.forEach((_, sIndex) => {
-          const sentenceEl = document.getElementById(`sentence-${pIndex}-${sIndex}`);
-
-          if (!sentenceEl) return;
-
-          if (
-            pIndex < currentParagraphIndex ||
-            (pIndex === currentParagraphIndex && sIndex < currentSentenceIndex)
-          ) {
-            sentenceEl.classList.add("done");
-          }
-        });
-      });
-
-      const currentParagraphEl = document.getElementById(`paragraph-${currentParagraphIndex}`);
-      const currentSentenceEl = document.getElementById(
-        `sentence-${currentParagraphIndex}-${currentSentenceIndex}`
-      );
-
-      if (currentParagraphEl) {
-        currentParagraphEl.classList.add("active");
-      }
-
-      if (currentSentenceEl) {
-        currentSentenceEl.classList.add("active");
-        currentSentenceEl.scrollIntoView({
-          behavior: "smooth",
-          block: "center"
-        });
-      }
-
-      updateCurrentSentenceDisplay();
-    }
-
-    function updateCurrentSentenceDisplay() {
-      if (
-        paragraphs.length === 0 ||
-        !paragraphs[currentParagraphIndex] ||
-        !paragraphs[currentParagraphIndex].sentences[currentSentenceIndex]
-      ) {
-        currentSentenceDisplay.textContent = "目前沒有朗讀中的句子。";
-        return;
-      }
-
-      currentSentenceDisplay.textContent =
-        paragraphs[currentParagraphIndex].sentences[currentSentenceIndex];
-    }
-
-    function updateStatus() {
-      if (paragraphs.length === 0) {
-        statusBox.textContent = "尚未整理稿子";
-        currentSentenceDisplay.textContent = "目前沒有朗讀中的句子。";
-        return;
-      }
-
-      const currentParagraph = paragraphs[currentParagraphIndex];
-
-      statusBox.textContent =
-        `目前第 ${currentParagraphIndex + 1} 段 / 共 ${paragraphs.length} 段，` +
-        `第 ${currentSentenceIndex + 1} 句 / 共 ${currentParagraph.sentences.length} 句`;
-    }
-
-    function getSelectedVoice() {
-      const selectedName = voiceSelect.value;
-      return voices.find(v => v.name === selectedName) || null;
-    }
-
-    function speakCurrentSentence() {
-      if (!isReading) return;
-
-      if (currentParagraphIndex >= paragraphs.length) {
-        isReading = false;
-        statusBox.textContent = "整篇朗讀完成";
-        currentSentenceDisplay.textContent = "整篇朗讀完成。";
-        return;
-      }
-
-      const currentParagraph = paragraphs[currentParagraphIndex];
+      currentSentenceIndex++;
 
       if (currentSentenceIndex >= currentParagraph.sentences.length) {
         currentParagraphIndex++;
         currentSentenceIndex = 0;
+      }
+
+      if (currentParagraphIndex < paragraphs.length) {
+        highlightCurrent();
+        updateStatus();
         speakCurrentSentence();
+      } else {
+        finishReading();
+      }
+    };
+
+    utterance.onerror = (event) => {
+      if (utteranceId !== currentUtteranceId) return;
+
+      if (
+        event.error === "canceled" ||
+        event.error === "cancelled" ||
+        event.error === "interrupted"
+      ) {
         return;
       }
 
-      const sentence = currentParagraph.sentences[currentSentenceIndex];
-
-      window.speechSynthesis.cancel();
-
-      const utterance = new SpeechSynthesisUtterance(sentence);
-      utterance.lang = "en-US";
-      utterance.rate = Number(rateInput.value);
-      utterance.pitch = 1;
-      utterance.volume = 1;
-
-      const selectedVoice = getSelectedVoice();
-      if (selectedVoice) {
-        utterance.voice = selectedVoice;
-      }
-
-      utterance.onstart = () => {
-        highlightCurrent();
-        updateStatus();
-      };
-
-      utterance.onend = () => {
-        currentSentenceIndex++;
-
-        if (currentSentenceIndex >= currentParagraph.sentences.length) {
-          currentParagraphIndex++;
-          currentSentenceIndex = 0;
-        }
-
-        if (currentParagraphIndex < paragraphs.length) {
-          highlightCurrent();
-          updateStatus();
-          speakCurrentSentence();
-        } else {
-          isReading = false;
-          statusBox.textContent = "整篇朗讀完成";
-          currentSentenceDisplay.textContent = "整篇朗讀完成。";
-        }
-      };
-
-      utterance.onerror = () => {
-        isReading = false;
-        statusBox.textContent = "朗讀發生錯誤，請重新開始。";
-      };
-
-      window.speechSynthesis.speak(utterance);
-    }
-
-    function startReading() {
-      if (paragraphs.length === 0) {
-        prepareScript();
-      }
-
-      if (paragraphs.length === 0) return;
-
-      isReading = true;
-      speakCurrentSentence();
-    }
-
-    function pauseReading() {
-      window.speechSynthesis.pause();
-      statusBox.textContent = "已暫停";
-    }
-
-    function resumeReading() {
-      window.speechSynthesis.resume();
-      updateStatus();
-    }
-
-    function stopReading() {
       isReading = false;
-      window.speechSynthesis.cancel();
-      highlightCurrent();
-      updateStatus();
+      statusBox.textContent = "朗讀發生錯誤，請重新開始。";
+    };
+
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function startReading() {
+    if (paragraphs.length === 0) {
+      prepareScript();
     }
 
-    function clearAll() {
-      isReading = false;
-      window.speechSynthesis.cancel();
+    if (paragraphs.length === 0) return;
 
-      scriptInput.value = "";
-      paragraphs = [];
+    if (isReading) {
+      return;
+    }
+
+    clearPendingStartTimer();
+
+    if (hasFinished || currentParagraphIndex >= paragraphs.length) {
       currentParagraphIndex = 0;
       currentSentenceIndex = 0;
-
-      content.innerHTML = "";
-      statusBox.textContent = "尚未整理稿子";
-      currentSentenceDisplay.textContent = "目前沒有朗讀中的句子。";
-
-      rateInput.value = "0.9";
-      rateValue.textContent = "0.9";
-
-      window.scrollTo({
-        top: 0,
-        behavior: "smooth"
-      });
-    }
-
-    function previousParagraph() {
-      stopReading();
-
-      if (currentParagraphIndex > 0) {
-        currentParagraphIndex--;
-        currentSentenceIndex = 0;
-      }
-
+      hasFinished = false;
       highlightCurrent();
       updateStatus();
     }
 
-    function nextParagraph() {
-      stopReading();
+    isReading = true;
+    speakCurrentSentence();
+  }
 
-      if (currentParagraphIndex < paragraphs.length - 1) {
-        currentParagraphIndex++;
-        currentSentenceIndex = 0;
-      }
+  function startReadingFromCurrentPosition() {
+    if (paragraphs.length === 0) return;
 
-      highlightCurrent();
-      updateStatus();
+    clearPendingStartTimer();
+
+    isReading = false;
+    hasFinished = false;
+
+    cancelSpeechSafely();
+    highlightCurrent();
+    updateStatus();
+
+    pendingStartTimer = setTimeout(() => {
+      pendingStartTimer = null;
+      isReading = true;
+      speakCurrentSentence();
+    }, 120);
+  }
+
+  function pauseReading() {
+    if (!isReading) return;
+
+    window.speechSynthesis.pause();
+    statusBox.textContent = "已暫停";
+  }
+
+  function resumeReading() {
+    if (hasFinished || paragraphs.length === 0) return;
+
+    window.speechSynthesis.resume();
+    updateStatus();
+  }
+
+  function stopReading() {
+    clearPendingStartTimer();
+
+    isReading = false;
+    cancelSpeechSafely();
+
+    if (hasFinished || currentParagraphIndex >= paragraphs.length) {
+      currentParagraphIndex = 0;
+      currentSentenceIndex = 0;
+      hasFinished = false;
     }
-  </script>
+
+    highlightCurrent();
+    updateStatus();
+  }
+
+  function clearAll() {
+    clearPendingStartTimer();
+
+    isReading = false;
+    hasFinished = false;
+    cancelSpeechSafely();
+
+    scriptInput.value = "";
+    paragraphs = [];
+    currentParagraphIndex = 0;
+    currentSentenceIndex = 0;
+
+    content.innerHTML = "";
+    statusBox.textContent = "尚未整理稿子";
+    currentSentenceDisplay.textContent = "目前沒有朗讀中的句子。";
+
+    rateInput.value = "0.9";
+    rateValue.textContent = "0.9";
+
+    clearSavedData();
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth"
+    });
+  }
+
+  function previousParagraph() {
+    if (!ensureScriptPrepared()) return;
+
+    if (hasFinished || currentParagraphIndex >= paragraphs.length) {
+      currentParagraphIndex = paragraphs.length - 1;
+    } else if (currentParagraphIndex > 0) {
+      currentParagraphIndex--;
+    }
+
+    currentSentenceIndex = 0;
+    hasFinished = false;
+
+    startReadingFromCurrentPosition();
+  }
+
+  function nextParagraph() {
+    if (!ensureScriptPrepared()) return;
+
+    if (hasFinished || currentParagraphIndex >= paragraphs.length) {
+      currentParagraphIndex = 0;
+    } else if (currentParagraphIndex < paragraphs.length - 1) {
+      currentParagraphIndex++;
+    }
+
+    currentSentenceIndex = 0;
+    hasFinished = false;
+
+    startReadingFromCurrentPosition();
+  }
+</script>
 </body>
 </html>
