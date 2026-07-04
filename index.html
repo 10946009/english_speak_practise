@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>英文整篇稿朗讀背誦工具</title>
+
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --warning-bg: #fff7d6;
+      --warning-border: #f59e0b;
+      --done: #9ca3af;
+      --radius: 16px;
+      --shadow: 0 10px 25px rgba(0, 0, 0, 0.06);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, "Microsoft JhengHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .app {
+      width: min(100%, 980px);
+      margin: 0 auto;
+      padding: 24px 16px 120px;
+    }
+
+    .header {
+      margin-bottom: 18px;
+    }
+
+    .header h1 {
+      margin: 0 0 8px;
+      font-size: clamp(24px, 4vw, 36px);
+      line-height: 1.2;
+    }
+
+    .header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 240px;
+      resize: vertical;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      font-size: 17px;
+      line-height: 1.6;
+      outline: none;
+      background: #fff;
+    }
+
+    textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+
+    .settings {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .field label {
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    select,
+    input[type="range"] {
+      width: 100%;
+    }
+
+    select {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 16px;
+      background: white;
+    }
+
+    .rate-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .rate-row span {
+      min-width: 36px;
+      text-align: right;
+      font-weight: bold;
+    }
+
+    .status-card {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .status {
+      font-weight: bold;
+      font-size: 16px;
+    }
+
+    .current-sentence {
+      padding: 16px;
+      border-radius: 14px;
+      background: var(--warning-bg);
+      border-left: 5px solid var(--warning-border);
+      font-size: clamp(18px, 3.6vw, 24px);
+      font-weight: 700;
+      line-height: 1.55;
+      min-height: 62px;
+    }
+
+    .content {
+      margin-top: 16px;
+    }
+
+    .paragraph {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      margin: 14px 0;
+      box-shadow: var(--shadow);
+      transition: 0.2s ease;
+    }
+
+    .paragraph.active {
+      border-color: var(--warning-border);
+      background: #fffdf5;
+    }
+
+    .paragraph-title {
+      display: inline-block;
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .sentence {
+      display: inline;
+      padding: 3px 5px;
+      border-radius: 6px;
+      font-size: clamp(17px, 2.4vw, 20px);
+      line-height: 1.85;
+      cursor: pointer;
+    }
+
+    .sentence.active {
+      background: var(--warning-bg);
+      font-weight: 700;
+      outline: 2px solid rgba(245, 158, 11, 0.25);
+    }
+
+    .sentence.done {
+      color: var(--done);
+    }
+
+    .controls {
+      position: sticky;
+      bottom: 0;
+      z-index: 20;
+      background: rgba(244, 246, 251, 0.92);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid var(--border);
+      padding: 12px 16px;
+      margin: 0 -16px;
+    }
+
+    .button-grid {
+      width: min(100%, 980px);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 8px;
+    }
+
+    button {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 11px 12px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      background: white;
+      color: var(--text);
+      transition: 0.15s ease;
+      white-space: nowrap;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+    }
+
+    button.primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: white;
+    }
+
+    button.primary:hover {
+      background: var(--primary-dark);
+    }
+
+    button.danger {
+      color: #dc2626;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 14px;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 768px) {
+      .app {
+        padding: 18px 12px 170px;
+      }
+
+      .card {
+        padding: 14px;
+        border-radius: 14px;
+      }
+
+      textarea {
+        min-height: 200px;
+        font-size: 16px;
+      }
+
+      .settings {
+        grid-template-columns: 1fr;
+      }
+
+      .paragraph {
+        padding: 15px;
+        margin: 12px 0;
+        border-radius: 14px;
+      }
+
+      .controls {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+        margin: 0;
+      }
+
+      .button-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      button {
+        min-height: 46px;
+        font-size: 15px;
+        padding: 10px 8px;
+      }
+
+      button.primary {
+        grid-column: span 2;
+      }
+    }
+
+    @media (max-width: 430px) {
+      .header h1 {
+        font-size: 24px;
+      }
+
+      .header p {
+        font-size: 14px;
+      }
+
+      .current-sentence {
+        font-size: 19px;
+      }
+
+      .button-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      button.primary {
+        grid-column: span 2;
+      }
+
+      button {
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="app">
+    <section class="header">
+      <h1>英文整篇稿朗讀背誦工具</h1>
+      <p>貼上英文稿後，可以逐段、逐句朗讀，並顯示目前正在唸的句子。</p>
+    </section>
+
+    <section class="card">
+      <textarea id="scriptInput" placeholder="請貼上英文稿，可以包含多個段落與換行..."></textarea>
+
+      <div class="settings">
+        <div class="field">
+          <label for="rateInput">語速</label>
+          <div class="rate-row">
+            <input id="rateInput" type="range" min="0.5" max="1.5" step="0.1" value="0.9">
+            <span id="rateValue">0.9</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="voiceSelect">英文聲音</label>
+          <select id="voiceSelect"></select>
+        </div>
+      </div>
+
+      <p class="hint">
+        目前版本預設「每一行」視為一個段落。點擊下面任一句，可以直接跳到該句開始背。
+      </p>
+    </section>
+
+    <section class="card status-card">
+      <div id="status" class="status">尚未整理稿子</div>
+      <div id="currentSentenceDisplay" class="current-sentence">
+        目前沒有朗讀中的句子。
+      </div>
+    </section>
+
+    <section id="content" class="content"></section>
+  </main>
+
+  <nav class="controls">
+    <div class="button-grid">
+      <button onclick="prepareScript()">整理稿子</button>
+      <button class="primary" onclick="startReading()">開始朗讀</button>
+      <button onclick="pauseReading()">暫停</button>
+      <button onclick="resumeReading()">繼續</button>
+      <button class="danger" onclick="stopReading()">停止</button>
+      <button onclick="previousParagraph()">上一段</button>
+      <button onclick="nextParagraph()">下一段</button>
+    </div>
+  </nav>
+
+  <script>
+    const scriptInput = document.getElementById("scriptInput");
+    const content = document.getElementById("content");
+    const statusBox = document.getElementById("status");
+    const currentSentenceDisplay = document.getElementById("currentSentenceDisplay");
+    const rateInput = document.getElementById("rateInput");
+    const rateValue = document.getElementById("rateValue");
+    const voiceSelect = document.getElementById("voiceSelect");
+
+    let paragraphs = [];
+    let currentParagraphIndex = 0;
+    let currentSentenceIndex = 0;
+    let isReading = false;
+    let voices = [];
+
+    rateInput.addEventListener("input", () => {
+      rateValue.textContent = rateInput.value;
+    });
+
+    function loadVoices() {
+      voices = window.speechSynthesis.getVoices();
+      voiceSelect.innerHTML = "";
+
+      const englishVoices = voices.filter(v => v.lang && v.lang.startsWith("en"));
+
+      englishVoices.forEach(voice => {
+        const option = document.createElement("option");
+        option.value = voice.name;
+        option.textContent = `${voice.name} (${voice.lang})`;
+        voiceSelect.appendChild(option);
+      });
+
+      if (englishVoices.length === 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "使用瀏覽器預設聲音";
+        voiceSelect.appendChild(option);
+      }
+    }
+
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    loadVoices();
+
+    function splitIntoSentences(text) {
+      return text
+        .match(/[^.!?]+[.!?]+|[^.!?]+$/g)
+        ?.map(s => s.trim())
+        .filter(s => s.length > 0) || [];
+    }
+
+    function prepareScript() {
+      stopReading();
+
+      const text = scriptInput.value.trim();
+
+      if (!text) {
+        alert("請先貼上英文稿。");
+        return;
+      }
+
+      paragraphs = text
+        .replace(/\r\n/g, "\n")
+        .split(/\n+/)
+        .map(p => p.trim())
+        .filter(p => p.length > 0)
+        .map(p => ({
+          originalText: p,
+          sentences: splitIntoSentences(p)
+        }))
+        .filter(p => p.sentences.length > 0);
+
+      currentParagraphIndex = 0;
+      currentSentenceIndex = 0;
+
+      renderContent();
+      updateStatus();
+      highlightCurrent();
+    }
+
+    function renderContent() {
+      content.innerHTML = "";
+
+      paragraphs.forEach((paragraph, pIndex) => {
+        const paragraphDiv = document.createElement("div");
+        paragraphDiv.className = "paragraph";
+        paragraphDiv.id = `paragraph-${pIndex}`;
+
+        const title = document.createElement("div");
+        title.className = "paragraph-title";
+        title.textContent = `Paragraph ${pIndex + 1}`;
+        paragraphDiv.appendChild(title);
+
+        const textDiv = document.createElement("div");
+
+        paragraph.sentences.forEach((sentence, sIndex) => {
+          const span = document.createElement("span");
+          span.className = "sentence";
+          span.id = `sentence-${pIndex}-${sIndex}`;
+          span.textContent = sentence + " ";
+
+          span.onclick = () => {
+            stopReading();
+            currentParagraphIndex = pIndex;
+            currentSentenceIndex = sIndex;
+            highlightCurrent();
+            updateStatus();
+          };
+
+          textDiv.appendChild(span);
+        });
+
+        paragraphDiv.appendChild(textDiv);
+        content.appendChild(paragraphDiv);
+      });
+    }
+
+    function highlightCurrent() {
+      document.querySelectorAll(".paragraph").forEach(el => {
+        el.classList.remove("active");
+      });
+
+      document.querySelectorAll(".sentence").forEach(el => {
+        el.classList.remove("active", "done");
+      });
+
+      paragraphs.forEach((paragraph, pIndex) => {
+        paragraph.sentences.forEach((_, sIndex) => {
+          const sentenceEl = document.getElementById(`sentence-${pIndex}-${sIndex}`);
+
+          if (!sentenceEl) return;
+
+          if (
+            pIndex < currentParagraphIndex ||
+            (pIndex === currentParagraphIndex && sIndex < currentSentenceIndex)
+          ) {
+            sentenceEl.classList.add("done");
+          }
+        });
+      });
+
+      const currentParagraphEl = document.getElementById(`paragraph-${currentParagraphIndex}`);
+      const currentSentenceEl = document.getElementById(
+        `sentence-${currentParagraphIndex}-${currentSentenceIndex}`
+      );
+
+      if (currentParagraphEl) {
+        currentParagraphEl.classList.add("active");
+      }
+
+      if (currentSentenceEl) {
+        currentSentenceEl.classList.add("active");
+        currentSentenceEl.scrollIntoView({
+          behavior: "smooth",
+          block: "center"
+        });
+      }
+
+      updateCurrentSentenceDisplay();
+    }
+
+    function updateCurrentSentenceDisplay() {
+      if (
+        paragraphs.length === 0 ||
+        !paragraphs[currentParagraphIndex] ||
+        !paragraphs[currentParagraphIndex].sentences[currentSentenceIndex]
+      ) {
+        currentSentenceDisplay.textContent = "目前沒有朗讀中的句子。";
+        return;
+      }
+
+      currentSentenceDisplay.textContent =
+        paragraphs[currentParagraphIndex].sentences[currentSentenceIndex];
+    }
+
+    function updateStatus() {
+      if (paragraphs.length === 0) {
+        statusBox.textContent = "尚未整理稿子";
+        currentSentenceDisplay.textContent = "目前沒有朗讀中的句子。";
+        return;
+      }
+
+      const currentParagraph = paragraphs[currentParagraphIndex];
+
+      statusBox.textContent =
+        `目前第 ${currentParagraphIndex + 1} 段 / 共 ${paragraphs.length} 段，` +
+        `第 ${currentSentenceIndex + 1} 句 / 共 ${currentParagraph.sentences.length} 句`;
+    }
+
+    function getSelectedVoice() {
+      const selectedName = voiceSelect.value;
+      return voices.find(v => v.name === selectedName) || null;
+    }
+
+    function speakCurrentSentence() {
+      if (!isReading) return;
+
+      if (currentParagraphIndex >= paragraphs.length) {
+        isReading = false;
+        statusBox.textContent = "整篇朗讀完成";
+        currentSentenceDisplay.textContent = "整篇朗讀完成。";
+        return;
+      }
+
+      const currentParagraph = paragraphs[currentParagraphIndex];
+
+      if (currentSentenceIndex >= currentParagraph.sentences.length) {
+        currentParagraphIndex++;
+        currentSentenceIndex = 0;
+        speakCurrentSentence();
+        return;
+      }
+
+      const sentence = currentParagraph.sentences[currentSentenceIndex];
+
+      window.speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(sentence);
+      utterance.lang = "en-US";
+      utterance.rate = Number(rateInput.value);
+      utterance.pitch = 1;
+      utterance.volume = 1;
+
+      const selectedVoice = getSelectedVoice();
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      }
+
+      utterance.onstart = () => {
+        highlightCurrent();
+        updateStatus();
+      };
+
+      utterance.onend = () => {
+        currentSentenceIndex++;
+
+        if (currentSentenceIndex >= currentParagraph.sentences.length) {
+          currentParagraphIndex++;
+          currentSentenceIndex = 0;
+        }
+
+        if (currentParagraphIndex < paragraphs.length) {
+          highlightCurrent();
+          updateStatus();
+          speakCurrentSentence();
+        } else {
+          isReading = false;
+          statusBox.textContent = "整篇朗讀完成";
+          currentSentenceDisplay.textContent = "整篇朗讀完成。";
+        }
+      };
+
+      utterance.onerror = () => {
+        isReading = false;
+        statusBox.textContent = "朗讀發生錯誤，請重新開始。";
+      };
+
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function startReading() {
+      if (paragraphs.length === 0) {
+        prepareScript();
+      }
+
+      if (paragraphs.length === 0) return;
+
+      isReading = true;
+      speakCurrentSentence();
+    }
+
+    function pauseReading() {
+      window.speechSynthesis.pause();
+      statusBox.textContent = "已暫停";
+    }
+
+    function resumeReading() {
+      window.speechSynthesis.resume();
+      updateStatus();
+    }
+
+    function stopReading() {
+      isReading = false;
+      window.speechSynthesis.cancel();
+      highlightCurrent();
+      updateStatus();
+    }
+
+    function previousParagraph() {
+      stopReading();
+
+      if (currentParagraphIndex > 0) {
+        currentParagraphIndex--;
+        currentSentenceIndex = 0;
+      }
+
+      highlightCurrent();
+      updateStatus();
+    }
+
+    function nextParagraph() {
+      stopReading();
+
+      if (currentParagraphIndex < paragraphs.length - 1) {
+        currentParagraphIndex++;
+        currentSentenceIndex = 0;
+      }
+
+      highlightCurrent();
+      updateStatus();
+    }
+  </script>
+</body>
+</html>
