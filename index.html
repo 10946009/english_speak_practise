@@ -14,6 +14,10 @@
       --border: #e5e7eb;
       --primary: #2563eb;
       --primary-dark: #1d4ed8;
+      --success: #16a34a;
+      --success-dark: #15803d;
+      --danger: #dc2626;
+      --danger-bg: #fff1f2;
       --warning-bg: #fff7d6;
       --warning-border: #f59e0b;
       --done: #9ca3af;
@@ -36,7 +40,7 @@
     .app {
       width: min(100%, 980px);
       margin: 0 auto;
-      padding: 24px 16px 120px;
+      padding: 24px 16px 130px;
     }
 
     .header {
@@ -209,7 +213,7 @@
       width: min(100%, 980px);
       margin: 0 auto;
       display: grid;
-      grid-template-columns: repeat(7, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 8px;
     }
 
@@ -231,6 +235,16 @@
       box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
     }
 
+    button.prepare {
+      background: var(--success);
+      border-color: var(--success);
+      color: white;
+    }
+
+    button.prepare:hover {
+      background: var(--success-dark);
+    }
+
     button.primary {
       background: var(--primary);
       border-color: var(--primary);
@@ -242,7 +256,15 @@
     }
 
     button.danger {
-      color: #dc2626;
+      background: var(--danger-bg);
+      border-color: #fecdd3;
+      color: var(--danger);
+    }
+
+    button.clear {
+      color: #92400e;
+      background: #fffbeb;
+      border-color: #fde68a;
     }
 
     .hint {
@@ -253,7 +275,7 @@
 
     @media (max-width: 768px) {
       .app {
-        padding: 18px 12px 170px;
+        padding: 18px 12px 185px;
       }
 
       .card {
@@ -291,12 +313,8 @@
 
       button {
         min-height: 46px;
-        font-size: 15px;
-        padding: 10px 8px;
-      }
-
-      button.primary {
-        grid-column: span 2;
+        font-size: 14px;
+        padding: 10px 6px;
       }
     }
 
@@ -314,15 +332,13 @@
       }
 
       .button-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
-
-      button.primary {
-        grid-column: span 2;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 7px;
       }
 
       button {
-        font-size: 14px;
+        font-size: 13px;
+        padding: 9px 4px;
       }
     }
   </style>
@@ -332,7 +348,7 @@
   <main class="app">
     <section class="header">
       <h1>英文整篇稿朗讀背誦工具</h1>
-      <p>貼上英文稿後，可以逐段、逐句朗讀，並顯示目前正在唸的句子。</p>
+      <p>貼上英文稿後，先整理稿子，再開始朗讀。系統會逐段、逐句朗讀並高亮目前句子。</p>
     </section>
 
     <section class="card">
@@ -354,7 +370,7 @@
       </div>
 
       <p class="hint">
-        目前版本預設「每一行」視為一個段落。點擊下面任一句，可以直接跳到該句開始背。
+        操作順序：先按「1. 整理稿子」，確認段落出現後，再按「2. 開始朗讀」。
       </p>
     </section>
 
@@ -370,11 +386,14 @@
 
   <nav class="controls">
     <div class="button-grid">
-      <button onclick="prepareScript()">整理稿子</button>
-      <button class="primary" onclick="startReading()">開始朗讀</button>
+      <button class="prepare" onclick="prepareScript()">1. 整理稿子</button>
+      <button class="primary" onclick="startReading()">2. 開始朗讀</button>
+      <button class="danger" onclick="stopReading()">停止</button>
+
       <button onclick="pauseReading()">暫停</button>
       <button onclick="resumeReading()">繼續</button>
-      <button class="danger" onclick="stopReading()">停止</button>
+      <button class="clear" onclick="clearAll()">清空文字</button>
+
       <button onclick="previousParagraph()">上一段</button>
       <button onclick="nextParagraph()">下一段</button>
     </div>
@@ -665,6 +684,28 @@
       window.speechSynthesis.cancel();
       highlightCurrent();
       updateStatus();
+    }
+
+    function clearAll() {
+      isReading = false;
+      window.speechSynthesis.cancel();
+
+      scriptInput.value = "";
+      paragraphs = [];
+      currentParagraphIndex = 0;
+      currentSentenceIndex = 0;
+
+      content.innerHTML = "";
+      statusBox.textContent = "尚未整理稿子";
+      currentSentenceDisplay.textContent = "目前沒有朗讀中的句子。";
+
+      rateInput.value = "0.9";
+      rateValue.textContent = "0.9";
+
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth"
+      });
     }
 
     function previousParagraph() {
